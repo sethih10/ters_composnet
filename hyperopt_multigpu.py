@@ -1,16 +1,16 @@
 import os
-import torch
 import argparse
 import pprint
-import optuna
-import wandb
 import shutil
+import torch
 import numpy as np
 import multiprocessing
+import optuna
+import wandb
 from contextlib import contextmanager
 import torchvision.transforms as transforms
 
-# Project imports (adjust paths as necessary)
+# Project imports (adjust as needed)
 from src.models import AttentionUNet
 from src.trainer.trainer_image_to_image import Trainer
 from src.datasets.ters_image_to_image_sh import Ters_dataset_filtered_skip
@@ -50,6 +50,10 @@ def sample_model_params(trial, config):
         "kernel_size": config.model.kernel_size_options[idx],
     }
 
+def safe_wandb_log(data):
+    if wandb.run is not None and getattr(wandb.run, "_state", None) == "running":
+        wandb.log(data)
+
 def objective(trial, config, gpu_queue, use_wandb=False):
     batch_size = trial.suggest_categorical("batch_size", config.training.batch_sizes)
     lr = trial.suggest_float("lr", config.training.learning_rates[0], config.training.learning_rates[-1], log=True)
@@ -62,19 +66,14 @@ def objective(trial, config, gpu_queue, use_wandb=False):
         run = wandb.init(
             project="Composnet_multi_class",
             name=run_name,
-            config={
-                **vars(config),
-                "batch_size": batch_size,
-                "lr": lr,
-                "loss_fn": loss_name
-            },
+            config={**vars(config), "batch_size": batch_size, "lr": lr, "loss_fn": loss_name},
             reinit=True
         )
 
     final_dice = None
-    with gpu_queue.one_gpu_per_process() as gpu_idx:
-        device = torch.device(f"cuda:{gpu_idx}" if gpu_idx is not None and torch.cuda.is_available() else "cpu")
-        try:
+    try:
+        with gpu_queue.one_gpu_per_process() as gpu_idx:
+            device = torch.device(f"cuda:{gpu_idx}" if gpu_idx is not None and torch.cuda.is_available() else "cpu")
             transform = transforms.Compose([Normalize(), MinimumToZero()])
             model_params = sample_model_params(trial, config)
             model = get_model(config.model.type, model_params).to(device)
@@ -108,7 +107,7 @@ def objective(trial, config, gpu_queue, use_wandb=False):
                 test_set=None,
                 save_path=config.save_path,
                 log_path=config.log_path,
-                dataloader_args={"batch_size": batch_size, "shuffle": True, "num_workers": 7},  # set to 0 for debug, increase later
+                dataloader_args={"batch_size": batch_size, "shuffle": True, "num_workers": 7},
                 device=device,
                 print_interval=0,
                 dataset_bonds=train_ds.unique_bonds
@@ -119,19 +118,17 @@ def objective(trial, config, gpu_queue, use_wandb=False):
             trainer.save_final_model(model_file)
             final_dice = trainer.final_metrics()
             trial.set_user_attr("model_path", model_file)
-        except Exception as e:
-            import traceback
-            print(f"Exception in trial {trial.number}: {e}")
-            traceback.print_exc()
-            final_dice = 0.0  # Penalize failed trials
-        finally:
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-    if use_wandb and run is not None:
-        wandb.log({"final_dice": final_dice, "trial": trial.number})
-        run.finish()
-
+    except Exception as e:
+        import traceback
+        print(f"Exception in trial {trial.number}: {e}")
+        traceback.print_exc()
+        final_dice = 0.0
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if use_wandb and run is not None:
+            safe_wandb_log({"final_dice": final_dice, "trial": trial.number})
+            run.finish()
     return final_dice
 
 def visualize_study(study, output_dir):
@@ -172,7 +169,6 @@ def main():
             n_trials=config.training.n_trials,
             n_jobs=args.n_gpus
         )
-
         print("Optuna results saving")
 
     df = study.trials_dataframe()
@@ -185,7 +181,7 @@ def main():
     if "model_path" in best_trial.user_attrs:
         best_model = best_trial.user_attrs["model_path"]
         shutil.copy(
-            os.path.join(config.save_path, "seg" + best_model),  # fixed here: no "seg" prefix
+            os.path.join(config.save_path, "seg" + best_model),
             os.path.join(config.save_path, "best_model.pt")
         )
         print("Best model saved to", os.path.join(config.save_path, "best_model.pt"))
