@@ -87,14 +87,12 @@ class Trainer():
 
             if epoch % 10 == 0 or epoch == epochs - 1:
                 self.evaluate_model_metrics(self.model, epoch)
-
-
-
+            
         self.writer.close()
 
+
+
     def train_epoch(self):
-        
-        
         self.model.train()
 
         total_loss = []
@@ -104,7 +102,7 @@ class Trainer():
             images = images.to(self.device)
             tgt_image = tgt_image.to(self.device)
 
-            tgt_image = (tgt_image > 0.01).long()
+            #tgt_image = (tgt_image > 0.01).long()
             outputs = self.model(images)
             #tgt_image_new = torch.zeros((tgt_image.shape[0], tgt_image.shape[1] + 1, tgt_image.shape[2], tgt_image.shape[3]), device=self.device)
             #tgt_image_new[:, 1:, :, :] = tgt_image
@@ -117,8 +115,6 @@ class Trainer():
             loss.backward()
             self.optimizer.step()
             total_loss.append(loss.item())
-
-
         
         return np.mean(total_loss)
     
@@ -134,7 +130,7 @@ class Trainer():
                 images = images.to(self.device)
                 tgt_image = tgt_image.to(self.device)
     
-                tgt_image = (tgt_image > 0.01).long()
+                #tgt_image = (tgt_image > 0.01).long()
                 outputs = self.model(images)
 
                 #tgt_image_new = torch.zeros((tgt_image.shape[0], tgt_image.shape[1] + 1, tgt_image.shape[2], tgt_image.shape[3]), device=self.device)
@@ -170,10 +166,10 @@ class Trainer():
 
                 # Get model predictions
                 outputs = model(images)
-                #preds = torch.argmax(outputs, dim=1)
+                preds = torch.argmax(outputs, dim=1)
 
-                outputs = torch.sigmoid(outputs)
-                preds = (outputs > 0.5).int()
+                #outputs = torch.sigmoid(outputs)
+                #preds = (outputs > 0.5).int()
 
 
 
@@ -196,8 +192,6 @@ class Trainer():
 
         # Compute metrics
         results = metrics.evaluate()
-
-        
 
         return results
     
